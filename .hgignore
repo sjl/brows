@@ -1,0 +1,4 @@
+syntax: glob
+lisp.prof
+scratch.lisp
+bin
