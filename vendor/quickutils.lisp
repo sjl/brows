@@ -2,7 +2,7 @@
 ;;;; See http://quickutil.org for details.
 
 ;;;; To regenerate:
-;;;; (qtlc:save-utils-as "quickutils.lisp" :utilities '(:COMPOSE :CURRY :ONCE-ONLY :RCURRY :SYMB :WITH-GENSYMS) :ensure-package T :package "BROWS.QUICKUTILS")
+;;;; (qtlc:save-utils-as "quickutils.lisp" :utilities '(:COMPOSE :READ-FILE-INTO-STRING :CURRY :ONCE-ONLY :RCURRY :SYMB :WITH-GENSYMS) :ensure-package T :package "BROWS.QUICKUTILS")
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (unless (find-package "BROWS.QUICKUTILS")
@@ -14,7 +14,9 @@
 
 (when (boundp '*utilities*)
   (setf *utilities* (union *utilities* '(:MAKE-GENSYM-LIST :ENSURE-FUNCTION
-                                         :COMPOSE :CURRY :ONCE-ONLY :RCURRY
+                                         :COMPOSE :ONCE-ONLY :WITH-OPEN-FILE*
+                                         :WITH-INPUT-FROM-FILE
+                                         :READ-FILE-INTO-STRING :CURRY :RCURRY
                                          :MKSTR :SYMB :STRING-DESIGNATOR
                                          :WITH-GENSYMS))))
 (eval-when (:compile-toplevel :load-toplevel :execute)
@@ -70,26 +72,6 @@ and then calling the next one with the primary value of the last."
              ,(compose-1 funs))))))
   
 
-  (defun curry (function &rest arguments)
-    "Returns a function that applies `arguments` and the arguments
-it is called with to `function`."
-    (declare (optimize (speed 3) (safety 1) (debug 1)))
-    (let ((fn (ensure-function function)))
-      (lambda (&rest more)
-        (declare (dynamic-extent more))
-        ;; Using M-V-C we don't need to append the arguments.
-        (multiple-value-call fn (values-list arguments) (values-list more)))))
-
-  (define-compiler-macro curry (function &rest arguments)
-    (let ((curries (make-gensym-list (length arguments) "CURRY"))
-          (fun (gensym "FUN")))
-      `(let ((,fun (ensure-function ,function))
-             ,@(mapcar #'list curries arguments))
-         (declare (optimize (speed 3) (safety 1) (debug 1)))
-         (lambda (&rest more)
-           (apply ,fun ,@curries more)))))
-  
-
   (defmacro once-only (specs &body forms)
     "Evaluates `forms` with symbols specified in `specs` rebound to temporary
 variables, ensuring that each initform is evaluated only once.
@@ -127,6 +109,78 @@ Example:
             ,(let ,(mapcar (lambda (n g) (list (car n) g))
                     names-and-forms gensyms)
                ,@forms)))))
+  
+
+  (defmacro with-open-file* ((stream filespec &key direction element-type
+                                                   if-exists if-does-not-exist external-format)
+                             &body body)
+    "Just like `with-open-file`, but `nil` values in the keyword arguments mean to use
+the default value specified for `open`."
+    (once-only (direction element-type if-exists if-does-not-exist external-format)
+      `(with-open-stream
+           (,stream (apply #'open ,filespec
+                           (append
+                            (when ,direction
+                              (list :direction ,direction))
+                            (when ,element-type
+                              (list :element-type ,element-type))
+                            (when ,if-exists
+                              (list :if-exists ,if-exists))
+                            (when ,if-does-not-exist
+                              (list :if-does-not-exist ,if-does-not-exist))
+                            (when ,external-format
+                              (list :external-format ,external-format)))))
+         ,@body)))
+  
+
+  (defmacro with-input-from-file ((stream-name file-name &rest args
+                                                         &key (direction nil direction-p)
+                                                         &allow-other-keys)
+                                  &body body)
+    "Evaluate `body` with `stream-name` to an input stream on the file
+`file-name`. `args` is sent as is to the call to `open` except `external-format`,
+which is only sent to `with-open-file` when it's not `nil`."
+    (declare (ignore direction))
+    (when direction-p
+      (error "Can't specifiy :DIRECTION for WITH-INPUT-FROM-FILE."))
+    `(with-open-file* (,stream-name ,file-name :direction :input ,@args)
+       ,@body))
+  
+
+  (defun read-file-into-string (pathname &key (buffer-size 4096) external-format)
+    "Return the contents of the file denoted by `pathname` as a fresh string.
+
+The `external-format` parameter will be passed directly to `with-open-file`
+unless it's `nil`, which means the system default."
+    (with-input-from-file
+        (file-stream pathname :external-format external-format)
+      (let ((*print-pretty* nil))
+        (with-output-to-string (datum)
+          (let ((buffer (make-array buffer-size :element-type 'character)))
+            (loop
+              :for bytes-read = (read-sequence buffer file-stream)
+              :do (write-sequence buffer datum :start 0 :end bytes-read)
+              :while (= bytes-read buffer-size)))))))
+  
+
+  (defun curry (function &rest arguments)
+    "Returns a function that applies `arguments` and the arguments
+it is called with to `function`."
+    (declare (optimize (speed 3) (safety 1) (debug 1)))
+    (let ((fn (ensure-function function)))
+      (lambda (&rest more)
+        (declare (dynamic-extent more))
+        ;; Using M-V-C we don't need to append the arguments.
+        (multiple-value-call fn (values-list arguments) (values-list more)))))
+
+  (define-compiler-macro curry (function &rest arguments)
+    (let ((curries (make-gensym-list (length arguments) "CURRY"))
+          (fun (gensym "FUN")))
+      `(let ((,fun (ensure-function ,function))
+             ,@(mapcar #'list curries arguments))
+         (declare (optimize (speed 3) (safety 1) (debug 1)))
+         (lambda (&rest more)
+           (apply ,fun ,@curries more)))))
   
 
   (defun rcurry (function &rest arguments)
@@ -200,6 +254,7 @@ unique symbol the named variable will be bound to."
     `(with-gensyms ,names ,@forms))
   
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (export '(compose curry once-only rcurry symb with-gensyms with-unique-names)))
+  (export '(compose read-file-into-string curry once-only rcurry symb
+            with-gensyms with-unique-names)))
 
 ;;;; END OF quickutils.lisp ;;;;

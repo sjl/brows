@@ -5,6 +5,7 @@
   :utilities '(
 
                :compose
+               :read-file-into-string
                :curry
                :once-only
                :rcurry
