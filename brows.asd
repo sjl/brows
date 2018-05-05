@@ -9,6 +9,7 @@
                :boots
                :cl-ppcre
                :deploy
+               :external-program
                :iterate
                :losh
 

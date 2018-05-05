@@ -17,10 +17,10 @@ bin:
 	mkdir -p bin
 
 binary-sbcl: bin
-	sbcl --load "src/build.lisp"
+	/usr/local/bin/sbcl --noinform --load "src/build.lisp"
 
 binary-ccl: bin
-	ccl --load "src/build.lisp"
+	/usr/local/bin/ccl64 --load "src/build.lisp"
 
 binary: binary-sbcl
 
