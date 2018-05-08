@@ -1,15 +1,16 @@
 (in-package :brows)
 
-
 (defparameter *regex*
-  (concatenate
-    'string
-    "(((http|https|ftp|gopher)|mailto):(//)?[^ <>\"\\t]*|(www|ftp)[0-9]?\\.[-a-z0-9.]+)"
-    "[^ .,;\\t\\n\\r<\">\\):]?[^, <>\"\\t]*[^ .,;\\t\\n\\r<\">\\):]"))
+  (ppcre:create-scanner
+    ; the regex in urlview's docs, with added [] exclusion
+    "(((http|https|ftp|gopher)|mailto):(//)?[^ \\[\\]<>\"\\t]*|(www|ftp)[0-9]?\\.[-a-z0-9.]+)[^ .,;\\[\\]\\t\\n\\r<\">\\):]?[^, <>\\[\\]\"\\t]*[^ .,;\\[\\]\\t\\n\\r<\">\\):]"
+    :case-insensitive-mode t))
+
 
 (defparameter *urls* nil)
 (defparameter *log* nil)
 (defparameter *pos* 0)
+(defparameter *actions* (make-hash-table))
 
 
 (defun find-urls (string)
@@ -41,11 +42,16 @@
 (defun process-input (input)
   (find-urls input))
 
-(defun action-open (url)
-  (external-program:run "open" (list url)))
-
-(defun action-w3m (url)
-  (external-program:run "w3m" (list url) :output t :input t))
+(defmacro define-action (keys program &key
+                         (url 'url)
+                         (arguments `(list ,url))
+                         tty)
+  (with-gensyms (action key)
+    `(let ((,action (lambda (,url)
+                      (external-program:run ,program ,arguments
+                                            ,@(if tty '(:output t :input t) '())))))
+       (dolist (,key (ensure-list ,keys))
+         (setf (gethash ,key *actions*) ,action)))))
 
 (defun perform-action (action)
   (charms/ll:endwin)
@@ -64,6 +70,7 @@
     (boots:draw canvas row 3 url)))
 
 (defun init ()
+  (load "~/.browsrc" :if-does-not-exist nil)
   (setf *urls* (-<> "-"
                  read-input
                  process-input)))
@@ -72,13 +79,14 @@
   (iterate
     (boots:blit)
     (for event = (boots:read-event))
-    (case event
-      (#\newline (perform-action #'action-open))
-      (#\w (perform-action #'action-w3m))
-      ((#\Q #\q) (return-from main))
-      ((#\k :up) (incf-pos -1))
-      ((#\j :down) (incf-pos 1))
-      (t (setf *log* event)))))
+    (for action = (gethash event *actions*))
+    (if action
+      (perform-action action)
+      (case event
+        ((#\Q #\q) (return-from main))
+        ((#\k :up) (incf-pos -1))
+        ((#\j :down) (incf-pos 1))
+        (t (setf *log* event))))))
 
 (defmacro catch-and-spew-errors (&body body)
   `(handler-case (progn ,@body)

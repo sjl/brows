@@ -5,10 +5,11 @@
   :utilities '(
 
                :compose
-               :read-file-into-string
                :curry
+               :ensure-list
                :once-only
                :rcurry
+               :read-file-into-string
                :symb
                :with-gensyms
 

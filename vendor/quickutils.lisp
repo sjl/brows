@@ -2,7 +2,7 @@
 ;;;; See http://quickutil.org for details.
 
 ;;;; To regenerate:
-;;;; (qtlc:save-utils-as "quickutils.lisp" :utilities '(:COMPOSE :READ-FILE-INTO-STRING :CURRY :ONCE-ONLY :RCURRY :SYMB :WITH-GENSYMS) :ensure-package T :package "BROWS.QUICKUTILS")
+;;;; (qtlc:save-utils-as "quickutils.lisp" :utilities '(:COMPOSE :CURRY :ENSURE-LIST :ONCE-ONLY :RCURRY :READ-FILE-INTO-STRING :SYMB :WITH-GENSYMS) :ensure-package T :package "BROWS.QUICKUTILS")
 
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (unless (find-package "BROWS.QUICKUTILS")
@@ -14,11 +14,11 @@
 
 (when (boundp '*utilities*)
   (setf *utilities* (union *utilities* '(:MAKE-GENSYM-LIST :ENSURE-FUNCTION
-                                         :COMPOSE :ONCE-ONLY :WITH-OPEN-FILE*
+                                         :COMPOSE :CURRY :ENSURE-LIST
+                                         :ONCE-ONLY :RCURRY :WITH-OPEN-FILE*
                                          :WITH-INPUT-FROM-FILE
-                                         :READ-FILE-INTO-STRING :CURRY :RCURRY
-                                         :MKSTR :SYMB :STRING-DESIGNATOR
-                                         :WITH-GENSYMS))))
+                                         :READ-FILE-INTO-STRING :MKSTR :SYMB
+                                         :STRING-DESIGNATOR :WITH-GENSYMS))))
 (eval-when (:compile-toplevel :load-toplevel :execute)
   (defun make-gensym-list (length &optional (x "G"))
     "Returns a list of `length` gensyms, each generated as if with a call to `make-gensym`,
@@ -72,6 +72,33 @@ and then calling the next one with the primary value of the last."
              ,(compose-1 funs))))))
   
 
+  (defun curry (function &rest arguments)
+    "Returns a function that applies `arguments` and the arguments
+it is called with to `function`."
+    (declare (optimize (speed 3) (safety 1) (debug 1)))
+    (let ((fn (ensure-function function)))
+      (lambda (&rest more)
+        (declare (dynamic-extent more))
+        ;; Using M-V-C we don't need to append the arguments.
+        (multiple-value-call fn (values-list arguments) (values-list more)))))
+
+  (define-compiler-macro curry (function &rest arguments)
+    (let ((curries (make-gensym-list (length arguments) "CURRY"))
+          (fun (gensym "FUN")))
+      `(let ((,fun (ensure-function ,function))
+             ,@(mapcar #'list curries arguments))
+         (declare (optimize (speed 3) (safety 1) (debug 1)))
+         (lambda (&rest more)
+           (apply ,fun ,@curries more)))))
+  
+
+  (defun ensure-list (list)
+    "If `list` is a list, it is returned. Otherwise returns the list designated by `list`."
+    (if (listp list)
+        list
+        (list list)))
+  
+
   (defmacro once-only (specs &body forms)
     "Evaluates `forms` with symbols specified in `specs` rebound to temporary
 variables, ensuring that each initform is evaluated only once.
@@ -109,6 +136,16 @@ Example:
             ,(let ,(mapcar (lambda (n g) (list (car n) g))
                     names-and-forms gensyms)
                ,@forms)))))
+  
+
+  (defun rcurry (function &rest arguments)
+    "Returns a function that applies the arguments it is called
+with and `arguments` to `function`."
+    (declare (optimize (speed 3) (safety 1) (debug 1)))
+    (let ((fn (ensure-function function)))
+      (lambda (&rest more)
+        (declare (dynamic-extent more))
+        (multiple-value-call fn (values-list more) (values-list arguments)))))
   
 
   (defmacro with-open-file* ((stream filespec &key direction element-type
@@ -161,36 +198,6 @@ unless it's `nil`, which means the system default."
               :for bytes-read = (read-sequence buffer file-stream)
               :do (write-sequence buffer datum :start 0 :end bytes-read)
               :while (= bytes-read buffer-size)))))))
-  
-
-  (defun curry (function &rest arguments)
-    "Returns a function that applies `arguments` and the arguments
-it is called with to `function`."
-    (declare (optimize (speed 3) (safety 1) (debug 1)))
-    (let ((fn (ensure-function function)))
-      (lambda (&rest more)
-        (declare (dynamic-extent more))
-        ;; Using M-V-C we don't need to append the arguments.
-        (multiple-value-call fn (values-list arguments) (values-list more)))))
-
-  (define-compiler-macro curry (function &rest arguments)
-    (let ((curries (make-gensym-list (length arguments) "CURRY"))
-          (fun (gensym "FUN")))
-      `(let ((,fun (ensure-function ,function))
-             ,@(mapcar #'list curries arguments))
-         (declare (optimize (speed 3) (safety 1) (debug 1)))
-         (lambda (&rest more)
-           (apply ,fun ,@curries more)))))
-  
-
-  (defun rcurry (function &rest arguments)
-    "Returns a function that applies the arguments it is called
-with and `arguments` to `function`."
-    (declare (optimize (speed 3) (safety 1) (debug 1)))
-    (let ((fn (ensure-function function)))
-      (lambda (&rest more)
-        (declare (dynamic-extent more))
-        (multiple-value-call fn (values-list more) (values-list arguments)))))
   
 
   (defun mkstr (&rest args)
@@ -254,7 +261,7 @@ unique symbol the named variable will be bound to."
     `(with-gensyms ,names ,@forms))
   
 (eval-when (:compile-toplevel :load-toplevel :execute)
-  (export '(compose read-file-into-string curry once-only rcurry symb
-            with-gensyms with-unique-names)))
+  (export '(compose curry ensure-list once-only rcurry read-file-into-string
+            symb with-gensyms with-unique-names)))
 
 ;;;; END OF quickutils.lisp ;;;;
