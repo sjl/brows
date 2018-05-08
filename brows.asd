@@ -4,7 +4,7 @@
   :author "Steve Losh <steve@stevelosh.com>"
   :license "MIT"
 
-  :version "0.0.0"
+  :version "0.0.1"
 
   :depends-on (
 
