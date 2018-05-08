@@ -4,6 +4,8 @@
   :author "Steve Losh <steve@stevelosh.com>"
   :license "MIT"
 
+  :version "0.0.0"
+
   :depends-on (
 
                :boots

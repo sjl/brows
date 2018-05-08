@@ -2,13 +2,12 @@
 
 (defparameter *regex*
   (ppcre:create-scanner
-    ; the regex in urlview's docs, with added [] exclusion
-    "(((http|https|ftp|gopher)|mailto):(//)?[^ \\[\\]<>\"\\t]*|(www|ftp)[0-9]?\\.[-a-z0-9.]+)[^ .,;\\[\\]\\t\\n\\r<\">\\):]?[^, <>\\[\\]\"\\t]*[^ .,;\\[\\]\\t\\n\\r<\">\\):]"
+    ;; https://gist.github.com/gruber/249502
+    "(?i)\\b((?:[a-z][\\w-]+:(?:/{1,3}|[a-z0-9%])|www\\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\\s()<>]+|\\(([^\\s()<>]+|(\\([^\\s()<>]+\\)))*\\))+(?:\\(([^\\s()<>]+|(\\([^\\s()<>]+\\)))*\\)|[^\\s`!()\\[\\]{};:'\".,<>?«»“”‘’]))"
     :case-insensitive-mode t))
 
-
+(defparameter *version* (asdf:component-version (asdf:find-system :brows)))
 (defparameter *urls* nil)
-(defparameter *log* nil)
 (defparameter *pos* 0)
 (defparameter *actions* (make-hash-table))
 
@@ -60,12 +59,11 @@
 
 (defun draw (canvas)
   (boots:clear canvas)
-  (boots:draw canvas 0 0 (structural-string *log*))
+  (boots:draw canvas 0 0 (format nil "brows v~A" *version*))
   (iterate
-    (with selected = (1+ *pos*))
-    (for row :from 1 :below (boots:height canvas))
-    (for url :in-vector *urls*)
-    (when (= row selected)
+    (for row :from 2 :below (boots:height canvas))
+    (for url :in-vector *urls* :with-index i)
+    (when (= i *pos*)
       (boots:draw canvas row 0 "-> "))
     (boots:draw canvas row 3 url)))
 
@@ -86,7 +84,7 @@
         ((#\Q #\q) (return-from main))
         ((#\k :up) (incf-pos -1))
         ((#\j :down) (incf-pos 1))
-        (t (setf *log* event))))))
+        (t nil)))))
 
 (defmacro catch-and-spew-errors (&body body)
   `(handler-case (progn ,@body)
