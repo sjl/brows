@@ -1,5 +1,6 @@
 (in-package :brows)
 
+;;;; State --------------------------------------------------------------------
 (defparameter *regex*
   (ppcre:create-scanner
     ;; https://gist.github.com/gruber/249502
@@ -12,14 +13,7 @@
 (defparameter *actions* (make-hash-table))
 
 
-(defun find-urls (string)
-  (-<> string
-    (ppcre:all-matches-as-strings
-      *regex* <>
-      :sharedp nil) ; ccl can't take non-simple-strings as external program args, because fuck me
-    (remove-duplicates <> :test #'string-equal)
-    (coerce <> 'vector)))
-
+;;;; Utils --------------------------------------------------------------------
 (defun read-standard-input-into-string ()
   (with-output-to-string (result)
     (let* ((buffer-size 4096)
@@ -33,6 +27,46 @@
   (setf *pos* (clamp 0 (1- (length *urls*))
                      (+ *pos* delta))))
 
+
+;;;; Actions ------------------------------------------------------------------
+(defclass* (action :conc-name "") ()
+  (tty keys thunk))
+
+(defun create-action (thunk keys tty)
+  (let ((action (make-instance 'action :thunk thunk :keys keys :tty tty)))
+    (dolist (key (ensure-list keys))
+      (setf (gethash key *actions*) action))))
+
+(defmacro define-action (keys program &key
+                         (url 'url)
+                         (arguments `(list ,url))
+                         tty)
+  `(create-action
+     (lambda (,url)
+       (external-program:run ,program ,arguments
+                             ,@(if tty
+                                 '(:output t :input t)
+                                 '())))
+     ,keys
+     ,tty))
+
+(defun perform-action (action)
+  (when (tty action)
+    (charms/ll:endwin))
+  (funcall (thunk action) (aref *urls* *pos*))
+  (when (tty action)
+    (boots:blit)))
+
+
+;;;; Input --------------------------------------------------------------------
+(defun find-urls (string)
+  (-<> string
+    (ppcre:all-matches-as-strings
+      *regex* <>
+      :sharedp nil) ; ccl can't take non-simple-strings as external program args, because fuck me
+    (remove-duplicates <> :test #'string-equal)
+    (coerce <> 'vector)))
+
 (defun read-input (path)
   (if (equal "-" path)
     (read-standard-input-into-string)
@@ -41,22 +75,8 @@
 (defun process-input (input)
   (find-urls input))
 
-(defmacro define-action (keys program &key
-                         (url 'url)
-                         (arguments `(list ,url))
-                         tty)
-  (with-gensyms (action key)
-    `(let ((,action (lambda (,url)
-                      (external-program:run ,program ,arguments
-                                            ,@(if tty '(:output t :input t) '())))))
-       (dolist (,key (ensure-list ,keys))
-         (setf (gethash ,key *actions*) ,action)))))
 
-(defun perform-action (action)
-  (charms/ll:endwin)
-  (funcall action (aref *urls* *pos*))
-  (boots:blit))
-
+;;;; UI -----------------------------------------------------------------------
 (defun draw (canvas)
   (boots:clear canvas)
   (boots:draw canvas 0 0 (format nil "brows v~A" *version*))
@@ -97,4 +117,3 @@
           (boots:canvas () #'draw)
         (init)
         (main)))))
-
