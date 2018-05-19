@@ -27,6 +27,14 @@
   (setf *pos* (clamp 0 (1- (length *urls*))
                      (+ *pos* delta))))
 
+(defun quit (&optional code)
+  #+sbcl (sb-ext:exit :code code)
+  #+ccl (ccl:quit code)
+  #+abcl (ext:quit :status code)
+  #+ecl (ext:quit code)
+  #-(or ccl sbcl ecl abcl)
+  (error "QUIT not supported on this implementation"))
+
 
 ;;;; Actions ------------------------------------------------------------------
 (defclass* (action :conc-name "") ()
@@ -40,13 +48,15 @@
 (defmacro define-action (keys program &key
                          (url 'url)
                          (arguments `(list ,url))
+                         exit
                          tty)
   `(create-action
      (lambda (,url)
        (external-program:run ,program ,arguments
                              ,@(if tty
                                  '(:output t :input t)
-                                 '())))
+                                 '()))
+       (when ,exit (quit)))
      ,keys
      ,tty))
 
