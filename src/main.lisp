@@ -98,7 +98,8 @@
     (boots:draw canvas row 3 url)))
 
 (defun init ()
-  (load "~/.browsrc" :if-does-not-exist nil)
+  (let ((*package* (find-package :brows)))
+    (load "~/.browsrc" :if-does-not-exist nil))
   (setf *urls* (-<> "-"
                  read-input
                  process-input)))
