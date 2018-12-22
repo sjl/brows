@@ -117,14 +117,39 @@
         ((#\j :down) (incf-pos 1))
         (t nil)))))
 
-(defmacro catch-and-spew-errors (&body body)
-  `(handler-case (progn ,@body)
-     (t (c) (format t "Error: ~A" c))))
+(defun run ()
+  (boots:with-boots (:fresh-tty t)
+    (boots:with-layer ()
+        (boots:canvas () #'draw)
+      (init)
+      (main))))
+
+
+;;;; CLI ----------------------------------------------------------------------
+(adopt:define-string *documentation*
+  "Brows is a utility for finding links in a chunk of text and presenting a ~
+  nice text-based UI for opening them.  It's written (and customizable) in ~
+  Common Lisp.")
+
+(adopt:define-interface *ui*
+    (:name "brows"
+     :summary "Find links and present a menu for opening them in a browser."
+     :usage "[OPTIONS]"
+     :documentation *documentation*
+     :examples '(("Present a menu for opening some links:" .
+                  "curl http://stevelosh.com/ | brows")))
+  (help
+    :documentation "display help and exit"
+    :long "help"
+    :short #\h
+    :reduce (constantly t)))
 
 (defun toplevel ()
-  (catch-and-spew-errors
-    (boots:with-boots (:fresh-tty t)
-      (boots:with-layer ()
-          (boots:canvas () #'draw)
-        (init)
-        (main)))))
+  (handler-case
+      (multiple-value-bind (arguments options) (adopt:parse-options *ui*)
+        (when (gethash 'help options)
+          (adopt:print-usage-and-exit *ui*))
+        (unless (null arguments)
+          (error "Unrecognized command line arguments: ~S" arguments))
+        (run))
+    (error (c) (adopt:print-error-and-exit c))))

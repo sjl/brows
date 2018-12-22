@@ -1,5 +1,7 @@
 .PHONY: vendor clean binary-sbcl binary-ccl binary
 
+all: binary
+
 # Vendor ----------------------------------------------------------------------
 vendor/quickutils.lisp: vendor/make-quickutils.lisp
 	cd vendor && sbcl --noinform --load make-quickutils.lisp  --eval '(quit)'
@@ -24,5 +26,5 @@ binary-ccl: bin
 
 binary: binary-sbcl
 
-bin/brows: $(lisps) $(assets) Makefile
+bin/brows: $(lisps) Makefile
 	make binary-sbcl

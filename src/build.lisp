@@ -1,4 +1,7 @@
-(ql:quickload :brows)
+(ql:quickload :brows :silent t)
+
+(with-open-file (stream "bin/brows.1" :direction :output :if-exists :supersede)
+  (adopt:print-manual brows::*ui* :stream stream))
 
 (setf deploy:*status-output* nil)
 

@@ -8,6 +8,7 @@
 
   :depends-on (
 
+               :adopt
                :boots
                :cl-ppcre
                :deploy
