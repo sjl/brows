@@ -23,26 +23,22 @@
         (write-sequence buffer result :start 0 :end bytes-read)
         (while (= bytes-read buffer-size))))))
 
-(defun incf-pos (delta)
-  (setf *pos* (clamp 0 (1- (length *urls*))
-                     (+ *pos* delta))))
+(defun clamp (lo v hi)
+  (max lo (min hi v)))
 
-(defun quit (&optional code)
-  #+sbcl (sb-ext:exit :code code)
-  #+ccl (ccl:quit code)
-  #+abcl (ext:quit :status code)
-  #+ecl (ext:quit code)
-  #-(or ccl sbcl ecl abcl)
-  (error "QUIT not supported on this implementation"))
+(defun incf-pos (delta)
+  (setf *pos* (clamp 0 (+ *pos* delta) (1- (length *urls*)))))
 
 
 ;;;; Actions ------------------------------------------------------------------
-(defclass* (action :conc-name "") ()
-  (tty keys thunk))
+(defclass action ()
+  ((tty :initarg :tty :accessor tty)
+   (keys :initarg :keys :accessor keys)
+   (thunk :initarg :thunk :accessor thunk)))
 
 (defun create-action (thunk keys tty)
   (let ((action (make-instance 'action :thunk thunk :keys keys :tty tty)))
-    (dolist (key (ensure-list keys))
+    (dolist (key (alexandria:ensure-list keys))
       (setf (gethash key *actions*) action))))
 
 (defmacro define-action (keys program &key
@@ -56,57 +52,52 @@
                              ,@(if tty
                                  '(:output t :input t)
                                  '()))
-       (when ,exit (quit)))
+       (when ,exit (throw 'done nil)))
      ,keys
      ,tty))
 
 (defun perform-action (action)
-  (when (tty action)
-    (charms/ll:endwin))
   (funcall (thunk action) (aref *urls* *pos*))
-  (when (tty action)
-    (boots:blit)))
+  (boots:redraw :full (tty action)))
 
 
 ;;;; Input --------------------------------------------------------------------
 (defun find-urls (string)
-  (-<> string
-    (ppcre:all-matches-as-strings
-      *regex* <>
-      :sharedp nil) ; ccl can't take non-simple-strings as external program args, because fuck me
-    (remove-duplicates <> :test #'string-equal)
-    (coerce <> 'vector)))
+  (let ((matches (ppcre:all-matches-as-strings
+                   *regex* string
+                   ;; ccl can't take non-simple-strings as external program
+                   ;; args, because fuck me
+                   :sharedp nil)))
+    (coerce (remove-duplicates matches :test #'string-equal) 'vector)))
 
 (defun read-input (path)
   (if (equal "-" path)
     (read-standard-input-into-string)
-    (read-file-into-string path)))
+    (alexandria:read-file-into-string path)))
 
 (defun process-input (input)
   (find-urls input))
 
 
 ;;;; UI -----------------------------------------------------------------------
-(defun draw (canvas)
-  (boots:clear canvas)
-  (boots:draw canvas 0 0 (format nil "brows v~A" *version*))
+(defun draw (pad)
+  (boots:draw pad 0 0 (format nil "brows v~A" *version*))
   (iterate
-    (for row :from 2 :below (boots:height canvas))
+    (for y :from 2 :below (boots:height pad))
     (for url :in-vector *urls* :with-index i)
-    (when (= i *pos*)
-      (boots:draw canvas row 0 "-> "))
-    (boots:draw canvas row 3 url)))
+    (for selected = (= i *pos*))
+    (when selected
+      (boots:draw pad 0 y "-> " (boots:attr :bold t)))
+    (boots:draw pad 3 y url (boots:attr :bold selected))))
 
 (defun init ()
   (let ((*package* (find-package :brows)))
     (load "~/.browsrc" :if-does-not-exist nil))
-  (setf *urls* (-<> "-"
-                 read-input
-                 process-input)))
+  (setf *urls* (process-input (read-input "-"))))
 
 (defun main ()
   (iterate
-    (boots:blit)
+    (boots:redraw)
     (for event = (boots:read-event))
     (for action = (gethash event *actions*))
     (if action
@@ -123,8 +114,11 @@
 
 (defun toplevel ()
   (catch-and-spew-errors
-    (boots:with-boots (:fresh-tty t)
-      (boots:with-layer ()
-          (boots:canvas () #'draw)
-        (init)
-        (main)))))
+    (catch 'done
+      (with-open-file (input "/dev/tty" :direction :input)
+        (with-open-file (output "/dev/tty" :direction :output :if-exists :append)
+          (boots/terminals/ansi:with-ansi-terminal (terminal :input-stream input :output-stream output)
+            (boots:with-screen (screen terminal :root (boots:make-canvas :draw #'draw))
+              (init)
+              (main))))))))
+
